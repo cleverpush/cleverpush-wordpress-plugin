@@ -757,7 +757,7 @@ if ( ! class_exists( 'CleverPush' ) ) :
 		}
 
 		public function publish_post($post_id) {
-			if ('inline-save' == $_POST['action']) {
+			if (isset($_POST['action']) && 'inline-save' == $_POST['action']) {
 				return;
 			}
 
