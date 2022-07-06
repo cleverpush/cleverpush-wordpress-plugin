@@ -985,7 +985,8 @@ if ( ! class_exists( 'CleverPush' ) ) :
         $plugin_version = $plugin_data['Version'];
 
         if ($wp_worker_file) {
-          echo "<script>window.cleverPushConfig = { serviceWorkerFile: '/wp-content/plugins/" . plugin_basename(plugin_dir_path( __FILE__ ) . '/cleverpush-worker.js.php') . "' };</script>\n";
+
+          echo "<script>window.cleverPushConfig = { serviceWorkerFile: '" . $this->get_plugin_path() . '/cleverpush-worker.js.php' . "' };</script>\n";
         }
 
 				echo "\n<script src=\"" . $this->get_static_endpoint() . "/channel/loader/" . $cleverpush_id . ".js?ver=" . $plugin_version . "\" async></script>\n";
@@ -993,7 +994,7 @@ if ( ! class_exists( 'CleverPush' ) ) :
 		}
 
     public function get_plugin_path() {
-      return '/wp-content/plugins/' . plugin_basename(plugin_dir_path( __FILE__ ));
+      return rtrim(parse_url(plugin_dir_url(__FILE__), PHP_URL_PATH), '/');
     }
 
     public function get_worker_url() {
@@ -1304,7 +1305,7 @@ if ( ! class_exists( 'CleverPush' ) ) :
 					</form>
 				<?php endif; ?>
 			</div>
-			
+
       <?php
         $last_error = get_option('cleverpush_notification_error');
         update_option('cleverpush_notification_error', null);
