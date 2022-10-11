@@ -4,7 +4,7 @@ Plugin Name: CleverPush
 Plugin URI: https://cleverpush.com
 Description: Send push notifications to your users right through your website. Visit <a href="https://cleverpush.com">CleverPush</a> for more details.
 Author: CleverPush
-Version: 1.7.0
+Version: 1.7.1
 Author URI: https://cleverpush.com
 Text Domain: cleverpush
 Domain Path: /languages
