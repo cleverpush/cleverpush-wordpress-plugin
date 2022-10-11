@@ -8,16 +8,17 @@ const CLEVERPUSH_API_ENDPOINT = 'https://api.cleverpush.com';
 
 class CleverPush_Api
 {
-    public static function request($path, $params) {
+    public static function request($path, $params)
+    {
         $api_key_private = get_option('cleverpush_apikey_private');
 
-        if (empty($api_key_private))
-        {
+        if (empty($api_key_private)) {
             return null;
         }
 
-        $response = wp_remote_post( CLEVERPUSH_API_ENDPOINT . $path, array(
-                'timeout' => 20,
+        $response = wp_remote_post(
+            CLEVERPUSH_API_ENDPOINT . $path, array(
+                'timeout' => 20, // phpcs:ignore
                 'headers' => array(
                     'authorization' => $api_key_private,
                     'content-type' => 'application/json'
@@ -27,20 +28,15 @@ class CleverPush_Api
         );
 
         $error_message = null;
-        if (is_wp_error ( $response ))
-        {
+        if (is_wp_error($response)) {
             $error_message = $response->get_error_message();
-        } elseif ( !in_array( wp_remote_retrieve_response_code( $response ), array(200, 201) ) )
-        {
-            $body = wp_remote_retrieve_body( $response );
+        } elseif (!in_array(wp_remote_retrieve_response_code($response), array(200, 201)) ) {
+            $body = wp_remote_retrieve_body($response);
             $data = json_decode($body);
-            if ($data && !empty($data->error))
-            {
+            if ($data && !empty($data->error)) {
                 $error_message = $data->error;
-            }
-            else
-            {
-                $error_message = 'HTTP ' . wp_remote_retrieve_response_code( $response );
+            } else {
+                $error_message = 'HTTP ' . wp_remote_retrieve_response_code($response);
             }
         }
 
@@ -55,7 +51,7 @@ class CleverPush_Api
     {
         $channel_id = get_option('cleverpush_channel_id');
 
-        if (get_option('cleverpush_enable_domain_replacement') == 'on'){
+        if (get_option('cleverpush_enable_domain_replacement') == 'on') {
             $option_url = get_option('cleverpush_replacement_domain');
             if (!empty($option_url)) {
                 $parsed_url = parse_url($url);

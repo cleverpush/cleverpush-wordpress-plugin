@@ -1,39 +1,40 @@
 <?php
 
-function cleverpush_amp_styles() {
-  $button_background = 'green';
-  $button_color = '#fff';
+function cleverpush_amp_styles()
+{
+    $button_background = 'green';
+    $button_color = '#fff';
 
-  $channel = get_option('cleverpush_channel_config');
-  if (!empty($channel)) {
-    if (!empty($channel->confirmAlertAllowButtonStyle) && !empty($channel->confirmAlertAllowButtonStyle->backgroundColor)) {
-      $button_background = $channel->confirmAlertAllowButtonStyle->backgroundColor;
-      if (!empty($channel->confirmAlertAllowButtonStyle->color)) {
-        $button_color = $channel->confirmAlertAllowButtonStyle->color;
-      }
-    } else if (!empty($channel->notificationBellColor)) {
-      $button_background = $channel->notificationBellColor;
+    $channel = get_option('cleverpush_channel_config');
+    if (!empty($channel)) {
+        if (!empty($channel->confirmAlertAllowButtonStyle) && !empty($channel->confirmAlertAllowButtonStyle->backgroundColor)) {
+            $button_background = $channel->confirmAlertAllowButtonStyle->backgroundColor;
+            if (!empty($channel->confirmAlertAllowButtonStyle->color)) {
+                $button_color = $channel->confirmAlertAllowButtonStyle->color;
+            }
+        } else if (!empty($channel->notificationBellColor)) {
+            $button_background = $channel->notificationBellColor;
+        }
     }
-  }
 
-  $position = get_option('cleverpush_amp_widget_position');
-  if (empty($position)) {
-    $position = 'bottom';
-  }
-  $border_position = $position == 'top' ? 'bottom' : 'top';
+    $position = get_option('cleverpush_amp_widget_position');
+    if (empty($position)) {
+        $position = 'bottom';
+    }
+    $border_position = $position == 'top' ? 'bottom' : 'top';
 
-  ?>
+    ?>
 
 .cleverpush-confirm {
   left: 10px;
   right: 10px;
   padding: 15px;
-  <?php echo $position; ?>: 0;
+    <?php echo esc_attr($position); ?>: 0;
   position: fixed;
   z-index: 999;
   background-color: #fff;
-  border-<?php echo $border_position; ?>-left-radius: 15px;
-  border-<?php echo $border_position; ?>-right-radius: 15px;
+  border-<?php echo esc_attr($border_position); ?>-left-radius: 15px;
+  border-<?php echo esc_attr($border_position); ?>-right-radius: 15px;
   box-shadow: 0 0 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -75,11 +76,11 @@ function cleverpush_amp_styles() {
 }
 
 .cleverpush-confirm-button-allow {
-  background-color: <?php echo $button_background; ?>;
-  color: <?php echo $button_color; ?>;
+  background-color: <?php echo esc_attr($button_background); ?>;
+  color: <?php echo esc_attr($button_color); ?>;
   margin-left: 5px;
   margin-right: 0;
 }
 
-  <?php
+    <?php
 }
