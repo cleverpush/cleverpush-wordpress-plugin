@@ -4,7 +4,7 @@ Plugin Name: CleverPush
 Plugin URI: https://cleverpush.com
 Description: Send push notifications to your users right through your website. Visit <a href="https://cleverpush.com">CleverPush</a> for more details.
 Author: CleverPush
-Version: 1.7.2
+Version: 1.8.0
 Author URI: https://cleverpush.com
 Text Domain: cleverpush
 Domain Path: /languages
@@ -561,6 +561,16 @@ if (! class_exists('CleverPush') ) :
                     <div class="cleverpush-loading-container">
                         <div class="cleverpush-loading"></div>
                     </div>
+
+                    <div class="components-base-control__field">
+                        <label class="components-base-control__label"
+                               for="cleverpush_scheduled_at_picker"><?php _e('Scheduled date (optional)', 'cleverpush'); ?>:</label>
+                        <div><input type="datetime-local" name="cleverpush_scheduled_at_picker" id="cleverpush_scheduled_at_picker"
+                                    style="width: 100%"></div>
+                        <input type="hidden" name="cleverpush_scheduled_at" id="cleverpush_scheduled_at"
+                                    value="<?php echo esc_attr(!empty(get_post_meta($post->ID, 'cleverpush_scheduled_at', true)) ? get_post_meta($post->ID, 'cleverpush_scheduled_at', true) : ''); ?>"
+                                    style="width: 100%">
+                    </div>
                 </div>
 
                 <div style="margin-top: 15px;">
@@ -771,6 +781,26 @@ if (! class_exists('CleverPush') ) :
                                                     }
                                                 }
                                             }
+
+                                            var cpScheduledAtInput = document.querySelector('input[name="cleverpush_scheduled_at"]');
+                                            var cpScheduledAtPicker = document.querySelector('input[name="cleverpush_scheduled_at_picker"]');
+                                            if (cpScheduledAtInput && cpScheduledAtPicker) {
+                                                var getLocalDateString = function(date) {
+                                                    return date.getFullYear() + '-' + ((date.getMonth() + 1) + '').padStart(2, '0') + '-' + (date.getDate() + '') + "T" + (date.getHours() + '').padStart(2, '0') + ":" + (date.getMinutes() + '').padStart(2, '0')
+                                                };
+                                                var date = new Date();
+                                                cpScheduledAtPicker.min = getLocalDateString(date);
+                                                if (cpScheduledAtInput.value) {
+                                                    cpScheduledAtPicker.value = getLocalDateString(new Date(cpScheduledAtInput.value));
+                                                }
+                                                cpScheduledAtPicker.addEventListener('change', function() {
+                                                    if (!cpScheduledAtPicker.value) {
+                                                        cpScheduledAtInput.value = '';
+                                                        return;
+                                                    }
+                                                    cpScheduledAtInput.value = new Date(cpScheduledAtPicker.value).toISOString();
+                                                });
+                                            }
                                         }
                                     }
                                 };
@@ -855,6 +885,10 @@ if (! class_exists('CleverPush') ) :
                 $options['mediaUrl'] = $thumbnail_url;
             }
 
+            if (!empty($_POST['cleverpush_scheduled_at'])) {
+                $options['scheduledAt'] = sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at']));
+            }
+
             delete_post_meta($post_id, 'cleverpush_send_notification');
 
             try {
@@ -890,6 +924,9 @@ if (! class_exists('CleverPush') ) :
             }
             if (isset($_POST['cleverpush_text'])) {
                 update_post_meta($post_id, 'cleverpush_text', sanitize_text_field($_POST['cleverpush_text']));
+            }
+            if (isset($_POST['cleverpush_scheduled_at'])) {
+                update_post_meta($post_id, 'cleverpush_scheduled_at', sanitize_text_field($_POST['cleverpush_scheduled_at']));
             }
 
             if (!empty($_POST['cleverpush_story_id'])) {
