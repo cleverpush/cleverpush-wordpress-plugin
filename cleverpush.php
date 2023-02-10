@@ -1042,6 +1042,7 @@ if (! class_exists('CleverPush') ) :
             register_setting('cleverpush_options', 'cleverpush_enable_domain_replacement');
             register_setting('cleverpush_options', 'cleverpush_replacement_domain');
             register_setting('cleverpush_options', 'cleverpush_script_disabled');
+            register_setting('cleverpush_options', 'cleverpush_script_blocked_consentmanager_enabled');
             register_setting('cleverpush_options', 'cleverpush_amp_enabled');
             register_setting('cleverpush_options', 'cleverpush_amp_widget_position');
         }
@@ -1072,9 +1073,25 @@ if (! class_exists('CleverPush') ) :
                     <script>window.cleverPushConfig = { serviceWorkerFile: '<?php echo esc_url_raw($this->get_worker_url()); ?>' };</script>
                     <?php
                 }
-                ?>
-                <script src="<?php echo esc_url_raw($this->get_static_endpoint() . "/channel/loader/" . $cleverpush_id . ".js?ver=" . $plugin_version); ?>" async></script>
-                <?php
+
+                $scriptSrc = $this->get_static_endpoint(). "/channel/loader/" . $cleverpush_id . ".js?ver=" . $plugin_version;
+                $iabVendorId = 1139;
+
+                if (get_option('cleverpush_script_blocked_consentmanager_enabled') == 'on') {
+                    ?>
+                    <script
+                      type="text/plain"
+                      data-cmp-src="<?php echo esc_url_raw($scriptSrc); ?>"
+                      class="cmplazyload"
+                      data-cmp-vendor="<?php echo $iabVendorId; ?>"
+                      async
+                    ></script>
+                    <?php
+                } else {
+                    ?>
+                    <script src="<?php echo esc_url_raw($scriptSrc); ?>" async></script>
+                    <?php
+                }
             }
         }
 
@@ -1381,6 +1398,14 @@ if (! class_exists('CleverPush') ) :
               <td>
                 <input type="checkbox" name="cleverpush_script_disabled" id="cleverpush_script_disabled" <?php echo esc_attr(get_option('cleverpush_script_disabled') == 'on' ? 'checked' : ''); ?> id="cleverpush_script_disabled" />
                 <label for="cleverpush_script_disabled"><?php _e('Do not output CleverPush script', 'cleverpush'); ?></label>
+              </td>
+            </tr>
+
+            <tr valign="top">
+              <th scope="row"></th>
+              <td>
+                <input type="checkbox" name="cleverpush_script_blocked_consentmanager_enabled" id="cleverpush_script_blocked_consentmanager_enabled" <?php echo esc_attr(get_option('cleverpush_script_blocked_consentmanager_enabled') == 'on' ? 'checked' : ''); ?> id="cleverpush_script_blocked_consentmanager_enabled" />
+                <label for="cleverpush_script_blocked_consentmanager_enabled"><?php _e('Output CleverPush script in blocked mode (Consentmanager)', 'cleverpush'); ?></label>
               </td>
             </tr>
 
