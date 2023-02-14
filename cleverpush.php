@@ -1083,7 +1083,7 @@ if (! class_exists('CleverPush') ) :
                       type="text/plain"
                       data-cmp-src="<?php echo esc_url_raw($scriptSrc); ?>"
                       class="cmplazyload"
-                      data-cmp-vendor="<?php echo esc_url_raw($iabVendorId); ?>"
+                      data-cmp-vendor="<?php echo esc_attr($iabVendorId); ?>"
                       async
                     ></script>
                     <?php
