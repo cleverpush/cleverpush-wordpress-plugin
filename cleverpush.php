@@ -53,6 +53,9 @@ if (! class_exists('CleverPush') ) :
             add_action('wp_ajax_cleverpush_subscription_id', array($this, 'set_subscription_id'));
             add_action('wp_ajax_nopriv_cleverpush_subscription_id', array($this, 'set_subscription_id'));
 
+            add_action('wp_ajax_cleverpush_users_plan', array($this, 'get_users_plan'));
+            add_action('wp_ajax_cleverpush_ai_generation', array($this, 'get_ai_generation'));
+
             add_action('single_template', array($this, 'cleverpush_story_template' ), 20, 1);
             add_action('frontpage_template', array($this, 'cleverpush_story_template' ), 11);
 
@@ -158,6 +161,86 @@ if (! class_exists('CleverPush') ) :
             if (get_site_option('cleverpush_capabilities_version') != $this->capabilities_version) {
                 $this->add_capabilities();
             }
+        }
+
+        function get_users_plan()
+        {
+            $api_key_private = get_option('cleverpush_apikey_private');
+
+            if (empty($api_key_private)) {
+                wp_send_json_error(array('message' => 'No API key found'), 403);
+            }
+
+            $response = wp_remote_get(
+                CLEVERPUSH_API_ENDPOINT . '/user',
+                array(
+                    'timeout' => 20, // phpcs:ignore
+                    'headers' => array(
+                        'authorization' => $api_key_private
+                    )
+                )
+            );
+
+            if (is_wp_error($response)) {
+                wp_send_json_error($response->get_error_message());
+            }
+            else {
+                $body = wp_remote_retrieve_body($response);
+                $data = json_decode($body);
+
+                if (isset($data->user) && isset($data->user->plan)) {
+                    wp_send_json($data->user->plan);
+                }
+                else {
+                    wp_send_json_error(array('message' => 'No plan found'), 500);
+                }
+            }
+
+            wp_die();
+        }
+
+        function get_ai_generation()
+        {
+            if (empty($_POST['post_id']) || empty($_POST['title']) || empty($_POST['text'])) {
+                wp_send_json_error(array('message' => 'Invalid request'), 400);
+            }
+
+            $post_id = sanitize_text_field(wp_unslash($_POST['post_id']));
+            $title = sanitize_text_field(wp_unslash($_POST['title']));
+            $text = sanitize_text_field(wp_unslash($_POST['text']));
+            $permalink = get_permalink($post_id);
+
+            $api_key_private = get_option('cleverpush_apikey_private');
+
+            if (empty($api_key_private)) {
+                wp_send_json_error(array('message' => 'No API key found'), 403);
+            }
+
+            $response = wp_remote_post(
+                CLEVERPUSH_API_ENDPOINT . '/ai-generation',
+                array(
+                    'timeout' => 20, // phpcs:ignore
+                    'headers' => array(
+                        'authorization' => $api_key_private,
+                        'content-type' => 'application/json'
+                    ),
+                    'body' => wp_json_encode(array(
+                        'title' => $title,
+                        'text' => $text,
+                        'url' => $permalink
+                    ))
+                )
+            );
+
+            if (is_wp_error($response)) {
+                wp_send_json_error($response->get_error_message());
+            }
+            else {
+                $body = wp_remote_retrieve_body($response);
+                wp_send_json(json_decode($body));
+            }
+
+            wp_die();
         }
 
         public function warn_nosettings()
@@ -571,6 +654,12 @@ if (! class_exists('CleverPush') ) :
                                     value="<?php echo esc_attr(!empty(get_post_meta($post->ID, 'cleverpush_scheduled_at', true)) ? get_post_meta($post->ID, 'cleverpush_scheduled_at', true) : ''); ?>"
                                     style="width: 100%">
                     </div>
+
+                    <div style="margin-top: 15px; display:none; justify-content: center;" id="cleverpush_ai_generation">
+                        <button id="cleverpush_ai_generation_button" class="button" disabled>
+                            Generate Content with AI
+                        </button>
+                    </div>
                 </div>
 
                 <div style="margin-top: 15px;">
@@ -819,6 +908,106 @@ if (! class_exists('CleverPush') ) :
                                 window.addEventListener('load', initCleverPush);
                             }
                         }
+                    } catch (err) {
+                        console.error(err);
+                    }
+                </script>
+
+                <script>
+                    const getUserPlan = async () => {
+                        const response = await fetch(ajaxurl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                            },
+                            body: 'action=cleverpush_users_plan'
+                        });
+                        return await response.json();
+                    };
+
+                    const getAiGeneration = async ({postId, title, text}) => {
+                        const response = await fetch(ajaxurl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                            },
+                            body: `action=cleverpush_ai_generation&post_id=${postId}&title=${title}&text=${text}`
+                        });
+                        return await response.json();
+                    };
+
+                    const initAIGeneration = async () => {
+                        const plan = await getUserPlan();
+
+                        const debounce = (callback, wait) => {
+                            let timeoutId = null;
+                            return (...args) => {
+                                window.clearTimeout(timeoutId);
+                                timeoutId = window.setTimeout(() => {
+                                    callback.apply(null, args);
+                                }, wait);
+                            };
+                        }
+
+                        if (plan.aiGeneration) {
+                            const aiGenerationButton = document.querySelector('#cleverpush_ai_generation_button');
+                            const aiGenerationDiv = document.querySelector('#cleverpush_ai_generation');
+                            aiGenerationDiv.style.display = 'flex';
+
+                            var editingPostData = {
+                                title: undefined,
+                                text: undefined,
+                            };
+                            wp.data.subscribe(debounce(() => {
+                                const coreEditor = wp.data.select('core/editor');
+
+                                if (coreEditor) {
+                                    editingPostData.title = coreEditor.getEditedPostAttribute('title');
+                                    editingPostData.text = coreEditor.getEditedPostAttribute('content');
+                                } else {
+                                    // In case the editor is not available, we can still try to get the data from the DOM
+                                    const titleField = document.querySelector('#title');
+                                    const contentField = document.querySelector('#content');
+                                    if (tinymce) {
+                                        editingPostData.title = titleField.value;
+                                        editingPostData.text = tinymce.activeEditor.getContent() || contentField.value;
+                                    }
+                                }
+
+                                if (aiGenerationDiv.style.display !== 'none') {
+                                    if (Object.values(editingPostData).some(value => value === undefined || value.length === 0)) {
+                                        aiGenerationButton.setAttribute('disabled', 'disabled');
+                                    } else {
+                                        aiGenerationButton.removeAttribute('disabled');
+                                    }
+                                }
+                            }, 1000));
+
+
+                            aiGenerationButton.addEventListener('click', async (e) => {
+                                e.preventDefault();
+                                const postIdField = document.querySelector('#post_ID');
+                                const postId = postIdField.value;
+
+                                aiGenerationButton.setAttribute('disabled', 'disabled');
+                                aiGenerationButton.innerHTML = 'Generating...';
+
+                                const response = await getAiGeneration({postId, ...editingPostData});
+
+                                const cpTitleField = document.querySelector('#cleverpush_title');
+                                const cpTextField = document.querySelector('#cleverpush_text');
+
+                                cpTitleField.value = response.title;
+                                cpTextField.value = response.text;
+
+                                aiGenerationButton.removeAttribute('disabled');
+                                aiGenerationButton.innerHTML = 'Generate Content with AI';
+                            });
+                        }
+                    };
+
+                    try {
+                        initAIGeneration();
                     } catch (err) {
                         console.error(err);
                     }
