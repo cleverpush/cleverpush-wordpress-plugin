@@ -1200,7 +1200,7 @@ if (! class_exists('CleverPush') ) :
                 if (!empty($scheduled_at)) {
                     $options['scheduledAt'] = is_numeric($scheduled_at) ? (int) $scheduled_at : strtotime($scheduled_at);
                 }
-            } elseif (empty($notification_delay) && !empty($_POST['cleverpush_scheduled_at'])) {
+            } elseif (!isset($_POST['cleverpush_notification_delay']) && !empty($_POST['cleverpush_scheduled_at'])) {
                 $scheduled_at = sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at']));
                 if (!empty($scheduled_at)) {
                     $options['scheduledAt'] = is_numeric($scheduled_at) ? (int) $scheduled_at : strtotime($scheduled_at);
