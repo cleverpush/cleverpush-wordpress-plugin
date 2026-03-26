@@ -677,17 +677,8 @@ if (! class_exists('CleverPush') ) :
 
         public function metabox($post)
         {
-            $notification_sent = get_post_meta(get_the_ID(), 'cleverpush_notification_sent', true);
-
-            if ($notification_sent) {
-                $notification_sent_at = get_post_meta(get_the_ID(), 'cleverpush_notification_sent_at', true);
-                if (!empty($notification_sent_at) && (time() - $notification_sent_at) < 60) {
-                    ?>
-                    ✅ <?php _e('A notification as been sent for this post', 'cleverpush'); ?>
-                    <?php
-                    return;
-                }
-            }
+            $notification_sent = get_post_meta($post->ID, 'cleverpush_notification_sent', true);
+            $notification_already_sent = ! empty($notification_sent);
 
             $selected_channel_id = get_option('cleverpush_channel_id');
             $api_key_private = get_option('cleverpush_apikey_private');
@@ -695,13 +686,19 @@ if (! class_exists('CleverPush') ) :
             if (!empty($api_key_private) && !empty($selected_channel_id)) {
 
                 ?>
+                <?php if ($notification_already_sent) : ?>
+                <p class="cleverpush-notification-sent-message">✅ <?php esc_html_e('A notification has been sent for this post.', 'cleverpush'); ?></p>
+                <?php endif; ?>
 
                 <input type="hidden" name="cleverpush_metabox_form_data_available" value="1">
                 
         <div>
           <label><input name="cleverpush_send_notification" type="checkbox"
-                  value="1" <?php if (get_post_meta($post->ID, 'cleverpush_send_notification', true)) { echo esc_attr('checked');
-                            } ?>> <?php _e('Send push notification', 'cleverpush'); ?>
+                  value="1" <?php
+                            if (!$notification_already_sent && get_post_meta($post->ID, 'cleverpush_send_notification', true)) {
+                                echo ' checked';
+                            }
+                            ?>> <?php echo $notification_already_sent ? esc_html__('Send again', 'cleverpush') : esc_html__('Send push notification', 'cleverpush'); ?>
           </label>
         </div>
 
@@ -723,18 +720,34 @@ if (! class_exists('CleverPush') ) :
                                     style="width: 100%"></div>
                     </div>
 
-                    <div class="cleverpush-loading-container">
-                        <div class="cleverpush-loading"></div>
-                    </div>
-
                     <div class="components-base-control__field">
                         <label class="components-base-control__label"
-                               for="cleverpush_scheduled_at_picker"><?php _e('Scheduled date (optional)', 'cleverpush'); ?>:</label>
+                               for="cleverpush_notification_delay"><?php _e('Notification delay (optional)', 'cleverpush'); ?>:</label>
+                        <div>
+                            <select name="cleverpush_notification_delay" id="cleverpush_notification_delay" style="width: 100%">
+                                <option value="" <?php selected(get_post_meta($post->ID, 'cleverpush_notification_delay', true), ''); ?>><?php _e('Send immediately (no delay)', 'cleverpush'); ?></option>
+                                <option value="15" <?php selected(get_post_meta($post->ID, 'cleverpush_notification_delay', true), '15'); ?>><?php _e('15 minutes after publication', 'cleverpush'); ?></option>
+                                <option value="30" <?php selected(get_post_meta($post->ID, 'cleverpush_notification_delay', true), '30'); ?>><?php _e('30 minutes after publication', 'cleverpush'); ?></option>
+                                <option value="60" <?php selected(get_post_meta($post->ID, 'cleverpush_notification_delay', true), '60'); ?>><?php _e('1 hour after publication', 'cleverpush'); ?></option>
+                                <option value="120" <?php selected(get_post_meta($post->ID, 'cleverpush_notification_delay', true), '120'); ?>><?php _e('2 hours after publication', 'cleverpush'); ?></option>
+                                <option value="240" <?php selected(get_post_meta($post->ID, 'cleverpush_notification_delay', true), '240'); ?>><?php _e('4 hours after publication', 'cleverpush'); ?></option>
+                                <option value="custom" <?php selected(get_post_meta($post->ID, 'cleverpush_notification_delay', true), 'custom'); ?>><?php _e('Custom scheduled date & time', 'cleverpush'); ?></option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="components-base-control__field cleverpush-scheduled-date-row" style="display: none;">
+                        <label class="components-base-control__label"
+                               for="cleverpush_scheduled_at_picker"><?php _e('Select date & time', 'cleverpush'); ?>:</label>
                         <div><input type="datetime-local" name="cleverpush_scheduled_at_picker" id="cleverpush_scheduled_at_picker"
                                     style="width: 100%"></div>
                         <input type="hidden" name="cleverpush_scheduled_at" id="cleverpush_scheduled_at"
                                     value="<?php echo esc_attr(!empty(get_post_meta($post->ID, 'cleverpush_scheduled_at', true)) ? get_post_meta($post->ID, 'cleverpush_scheduled_at', true) : ''); ?>"
                                     style="width: 100%">
+                    </div>
+
+                    <div class="cleverpush-loading-container">
+                        <div class="cleverpush-loading"></div>
                     </div>
 
                     <div style="margin-top: 15px; display:none; justify-content: center;" id="cleverpush_ai_generation">
@@ -767,6 +780,22 @@ if (! class_exists('CleverPush') ) :
                                   cpScheduledAtPicker.value = '';
                                 }
                             });
+                            var cpDelaySelect = document.querySelector('select[name="cleverpush_notification_delay"]');
+                            var cpScheduledDateRow = document.querySelector('.cleverpush-scheduled-date-row');
+                            function updateScheduledDateRowVisibility() {
+                                if (cpScheduledDateRow && cpDelaySelect) {
+                                    cpScheduledDateRow.style.display = cpDelaySelect.value === 'custom' ? 'block' : 'none';
+                                    if (cpDelaySelect.value !== 'custom' && cpScheduledAtPicker) {
+                                        cpScheduledAtPicker.value = '';
+                                        if (cpScheduledAtInput) cpScheduledAtInput.value = '';
+                                    }
+                                }
+                            }
+                            if (cpDelaySelect) {
+                                cpDelaySelect.addEventListener('change', updateScheduledDateRowVisibility);
+                                updateScheduledDateRowVisibility();
+                            }
+
 
                             var initCleverPush = function () {
                                 if (typeof wp !== 'undefined' && wp.data && wp.data.subscribe && wp.data.select) {
@@ -1120,32 +1149,19 @@ if (! class_exists('CleverPush') ) :
             }
         }
 
-        public function publish_post($post_id)
+        /**
+         * Sends push notification for a post. Used on first publish and on "Send again".
+         *
+         * @param int $post_id Post ID.
+         */
+        private function do_send_push_for_post($post_id)
         {
-            if (isset($_POST['action']) && 'inline-save' == $_POST['action']) {
-                return;
-            }
-
-            if (!current_user_can('cleverpush_send')) {
-                return;
-            }
-
-            if (isset($_POST['cleverpush_metabox_form_data_available']) ? !isset($_POST['cleverpush_send_notification']) : !get_post_meta($post_id, 'cleverpush_send_notification', true)) {
-                return;
-            }
-
-            if (get_post_meta($post_id, 'cleverpush_notification_sent', true)) {
-                $notification_sent_at = get_post_meta(get_the_ID(), 'cleverpush_notification_sent_at', true);
-                if (!empty($notification_sent_at) && (time() - $notification_sent_at) < 60) {
-                    return;
-                }
-            }
-
             $title = html_entity_decode(get_the_title($post_id));
             if (get_option('cleverpush_notification_title_required') == 'on') {
                 $title = null;
             }
-            $text = !empty(get_the_excerpt()) ? html_entity_decode(get_the_excerpt()) : '';
+            $post_obj = get_post($post_id);
+            $text = !empty($post_obj->post_excerpt) ? html_entity_decode($post_obj->post_excerpt) : '';
             $url = get_permalink($post_id);
 
             if (!empty($_POST['cleverpush_title'])) {
@@ -1162,21 +1178,33 @@ if (! class_exists('CleverPush') ) :
 
             $options = array();
             if (isset($_POST['cleverpush_use_segments']) && $_POST['cleverpush_use_segments'] == '1' && !empty($_POST['cleverpush_segments'])) {
-                $options['segments'] = array_map('sanitize_text_field', $_POST['cleverpush_segments']);
+                $options['segments'] = array_map('sanitize_text_field', wp_unslash($_POST['cleverpush_segments']));
             }
             if (isset($_POST['cleverpush_use_topics']) && $_POST['cleverpush_use_topics'] == '1' && !empty($_POST['cleverpush_topics'])) {
-                $options['topics'] = array_map('sanitize_text_field', $_POST['cleverpush_topics']);
+                $options['topics'] = array_map('sanitize_text_field', wp_unslash($_POST['cleverpush_topics']));
             }
             if (isset($_POST['cleverpush_use_tags']) && $_POST['cleverpush_use_tags'] == '1' && !empty($_POST['cleverpush_tags'])) {
-                $options['tags'] = array_map('sanitize_text_field', $_POST['cleverpush_tags']);
+                $options['tags'] = array_map('sanitize_text_field', wp_unslash($_POST['cleverpush_tags']));
             }
-            $thumbnail_url = get_the_post_thumbnail_url();
+            $thumbnail_url = get_the_post_thumbnail_url($post_id);
             if (!empty($thumbnail_url)) {
                 $options['mediaUrl'] = $thumbnail_url;
             }
 
-            if (!empty($_POST['cleverpush_scheduled_at'])) {
-                $options['scheduledAt'] = sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at']));
+            $notification_delay = isset($_POST['cleverpush_notification_delay']) ? sanitize_text_field(wp_unslash($_POST['cleverpush_notification_delay'])) : get_post_meta($post_id, 'cleverpush_notification_delay', true);
+            $delay_minutes = array('15' => 15, '30' => 30, '60' => 60, '120' => 120, '240' => 240);
+            if (!empty($notification_delay) && isset($delay_minutes[ $notification_delay ])) {
+                $options['scheduledAt'] = time() + ( $delay_minutes[ $notification_delay ] * 60 );
+            } elseif ($notification_delay === 'custom') {
+                $scheduled_at = isset($_POST['cleverpush_scheduled_at']) ? sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at'])) : get_post_meta($post_id, 'cleverpush_scheduled_at', true);
+                if (!empty($scheduled_at)) {
+                    $options['scheduledAt'] = is_numeric($scheduled_at) ? (int) $scheduled_at : strtotime($scheduled_at);
+                }
+            } elseif (!isset($_POST['cleverpush_notification_delay']) && !empty($_POST['cleverpush_scheduled_at'])) {
+                $scheduled_at = sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at']));
+                if (!empty($scheduled_at)) {
+                    $options['scheduledAt'] = is_numeric($scheduled_at) ? (int) $scheduled_at : strtotime($scheduled_at);
+                }
             }
 
             delete_post_meta($post_id, 'cleverpush_send_notification');
@@ -1187,11 +1215,27 @@ if (! class_exists('CleverPush') ) :
                 update_option('cleverpush_notification_error', null);
                 update_post_meta($post_id, 'cleverpush_notification_sent', true);
                 update_post_meta($post_id, 'cleverpush_notification_sent_at', time());
-
             } catch (Exception $ex) {
-                update_option('cleverpush_notification_result', array('status' => 'error', 'message' => $ex->getMessage() ));
+                update_option('cleverpush_notification_result', array('status' => 'error', 'message' => $ex->getMessage()));
                 update_option('cleverpush_notification_error', $ex->getMessage());
             }
+        }
+
+        public function publish_post($post_id)
+        {
+            if (isset($_POST['action']) && 'inline-save' == $_POST['action']) {
+                return;
+            }
+
+            if (!current_user_can('cleverpush_send')) {
+                return;
+            }
+
+            if (isset($_POST['cleverpush_metabox_form_data_available']) ? !isset($_POST['cleverpush_send_notification']) : !get_post_meta($post_id, 'cleverpush_send_notification', true)) {
+                return;
+            }
+
+            $this->do_send_push_for_post($post_id);
         }
 
         public function save_post($post_id, $post)
@@ -1204,8 +1248,21 @@ if (! class_exists('CleverPush') ) :
                 return;
             }
 
+            if (isset($_POST['action']) && 'inline-save' == $_POST['action']) {
+                return;
+            }
+
             $should_send = get_post_status($post_id) != 'publish' ? isset($_POST['cleverpush_send_notification']) : false;
             update_post_meta($post_id, 'cleverpush_send_notification', $should_send);
+
+            // "Send again": post is already published, notification was sent before, user checked the box.
+            if (get_post_status($post_id) === 'publish'
+                && get_post_meta($post_id, 'cleverpush_notification_sent', true)
+                && isset($_POST['cleverpush_metabox_form_data_available'])
+                && isset($_POST['cleverpush_send_notification'])
+            ) {
+                $this->do_send_push_for_post($post_id);
+            }
 
             update_post_meta($post_id, 'cleverpush_disable_feed', isset($_POST['cleverpush_disable_feed']));
 
@@ -1217,6 +1274,10 @@ if (! class_exists('CleverPush') ) :
             }
             if (isset($_POST['cleverpush_scheduled_at'])) {
                 update_post_meta($post_id, 'cleverpush_scheduled_at', sanitize_text_field($_POST['cleverpush_scheduled_at']));
+            }
+            if (isset($_POST['cleverpush_notification_delay'])) {
+                $delay = sanitize_text_field($_POST['cleverpush_notification_delay']);
+                update_post_meta($post_id, 'cleverpush_notification_delay', in_array($delay, array('', '15', '30', '60', '120', '240', 'custom'), true) ? $delay : '');
             }
 
             if (!empty($_POST['cleverpush_story_id'])) {
