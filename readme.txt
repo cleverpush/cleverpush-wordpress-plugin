@@ -1,3 +1,5 @@
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fcleverpush%2Fcleverpush-wordpress-plugin.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fcleverpush%2Fcleverpush-wordpress-plugin?ref=badge_shield)
+
 === CleverPush ===
 Contributors: CleverPush
 Plugin Name: CleverPush
@@ -254,3 +256,7 @@ If you are using any cache plugin, also be sure, to empty your cache.
 
 Enter your CleverPush API keys in the given fields. You can find your API keys in the CleverPush backoffice under Settings > API.
 
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fcleverpush%2Fcleverpush-wordpress-plugin.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fcleverpush%2Fcleverpush-wordpress-plugin?ref=badge_large)
