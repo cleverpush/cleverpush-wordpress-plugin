@@ -4,7 +4,7 @@ Plugin Name: CleverPush
 Plugin URI: https://cleverpush.com
 Description: Send push notifications to your users right through your website. Visit <a href="https://cleverpush.com">CleverPush</a> for more details.
 Author: CleverPush
-Version: 1.9.8
+Version: 1.9.9
 Author URI: https://cleverpush.com
 Text Domain: cleverpush
 Domain Path: /languages
@@ -763,10 +763,45 @@ if (! class_exists('CleverPush') ) :
                             cpCheckbox.addEventListener('change', function (e) {
                                 cpContent.style.display = e.target.checked ? 'block' : 'none';
 
-                                if (!e.target.checked && cpScheduledAtPicker) {
-                                  cpScheduledAtPicker.value = '';
+                                if (!e.target.checked) {
+                                    if (cpScheduledAtPicker) {
+                                        cpScheduledAtPicker.value = '';
+                                    }
+                                    if (cpScheduledAtInput) {
+                                        cpScheduledAtInput.value = '';
+                                    }
                                 }
                             });
+
+                            var syncScheduledAt = function () {};
+                            if (cpScheduledAtInput && cpScheduledAtPicker) {
+                                var padDatePart = function (value) {
+                                    return (value < 10 ? '0' : '') + value;
+                                };
+                                var getLocalDateString = function (date) {
+                                    return date.getFullYear() + '-' + padDatePart(date.getMonth() + 1) + '-' + padDatePart(date.getDate()) + 'T' + padDatePart(date.getHours()) + ':' + padDatePart(date.getMinutes());
+                                };
+                                syncScheduledAt = function () {
+                                    if (!cpScheduledAtPicker.value) {
+                                        cpScheduledAtInput.value = '';
+                                        return;
+                                    }
+                                    var parsed = new Date(cpScheduledAtPicker.value);
+                                    if (!isNaN(parsed.getTime())) {
+                                        cpScheduledAtInput.value = parsed.toISOString();
+                                    }
+                                };
+                                cpScheduledAtPicker.min = getLocalDateString(new Date());
+                                if (cpScheduledAtInput.value && new Date(cpScheduledAtInput.value) > new Date()) {
+                                    cpScheduledAtPicker.value = getLocalDateString(new Date(cpScheduledAtInput.value));
+                                }
+                                cpScheduledAtPicker.addEventListener('input', syncScheduledAt);
+                                cpScheduledAtPicker.addEventListener('change', syncScheduledAt);
+                                var postForm = document.getElementById('post');
+                                if (postForm) {
+                                    postForm.addEventListener('submit', syncScheduledAt);
+                                }
+                            }
 
                             var initCleverPush = function () {
                                 if (typeof wp !== 'undefined' && wp.data && wp.data.subscribe && wp.data.select) {
@@ -789,6 +824,10 @@ if (! class_exists('CleverPush') ) :
                                                     var isAutosavingPost = coreEditor.isAutosavingPost();
                                                     var isPreviewingPost = coreEditor.isPreviewingPost();
                                                     var postStatus = coreEditor.getEditedPostAttribute('status');
+
+                                                    if (isSavingPost && !wasSavingPost) {
+                                                        syncScheduledAt();
+                                                    }
 
                                                     // Save metaboxes on save completion, except for autosaves that are not a post preview.
                                                     var shouldTriggerTemplateNotice = (
@@ -971,23 +1010,6 @@ if (! class_exists('CleverPush') ) :
                                                 }
                                             }
 
-                                            if (cpScheduledAtInput && cpScheduledAtPicker) {
-                                                var getLocalDateString = function(date) {
-                                                    return date.getFullYear() + '-' + ((date.getMonth() + 1) + '').padStart(2, '0') + '-' + (date.getDate() + '') + "T" + (date.getHours() + '').padStart(2, '0') + ":" + (date.getMinutes() + '').padStart(2, '0')
-                                                };
-                                                var date = new Date();
-                                                cpScheduledAtPicker.min = getLocalDateString(date);
-                                                if (cpScheduledAtInput.value && new Date(cpScheduledAtInput.value) > new Date()) {
-                                                    cpScheduledAtPicker.value = getLocalDateString(new Date(cpScheduledAtInput.value));
-                                                }
-                                                cpScheduledAtPicker.addEventListener('change', function() {
-                                                    if (!cpScheduledAtPicker.value) {
-                                                        cpScheduledAtInput.value = '';
-                                                        return;
-                                                    }
-                                                    cpScheduledAtInput.value = new Date(cpScheduledAtPicker.value).toISOString();
-                                                });
-                                            }
                                         }
                                     }
                                 };
@@ -1126,16 +1148,18 @@ if (! class_exists('CleverPush') ) :
                 return;
             }
 
-            if (!current_user_can('cleverpush_send')) {
+            $saved_send = get_post_meta($post_id, 'cleverpush_send_notification', true);
+            $publishing_via_cron = (function_exists('wp_doing_cron') && wp_doing_cron()) || (defined('DOING_CRON') && DOING_CRON);
+            if (!current_user_can('cleverpush_send') && !($publishing_via_cron && $saved_send)) {
                 return;
             }
 
-            if (isset($_POST['cleverpush_metabox_form_data_available']) ? !isset($_POST['cleverpush_send_notification']) : !get_post_meta($post_id, 'cleverpush_send_notification', true)) {
+            if (isset($_POST['cleverpush_metabox_form_data_available']) ? !isset($_POST['cleverpush_send_notification']) : !$saved_send) {
                 return;
             }
 
             if (get_post_meta($post_id, 'cleverpush_notification_sent', true)) {
-                $notification_sent_at = get_post_meta(get_the_ID(), 'cleverpush_notification_sent_at', true);
+                $notification_sent_at = get_post_meta($post_id, 'cleverpush_notification_sent_at', true);
                 if (!empty($notification_sent_at) && (time() - $notification_sent_at) < 60) {
                     return;
                 }
@@ -1145,15 +1169,28 @@ if (! class_exists('CleverPush') ) :
             if (get_option('cleverpush_notification_title_required') == 'on') {
                 $title = null;
             }
-            $text = !empty(get_the_excerpt()) ? html_entity_decode(get_the_excerpt()) : '';
+            $text = get_the_excerpt($post_id);
+            $text = !empty($text) ? html_entity_decode($text) : '';
             $url = get_permalink($post_id);
+            $metabox_submitted = isset($_POST['cleverpush_metabox_form_data_available']);
 
             if (!empty($_POST['cleverpush_title'])) {
                 $title = sanitize_text_field(wp_unslash($_POST['cleverpush_title']));
                 $text = '';
+            } elseif (!$metabox_submitted) {
+                $saved_title = get_post_meta($post_id, 'cleverpush_title', true);
+                if (!empty($saved_title)) {
+                    $title = $saved_title;
+                    $text = '';
+                }
             }
             if (!empty($_POST['cleverpush_text'])) {
                 $text = sanitize_text_field(wp_unslash($_POST['cleverpush_text']));
+            } elseif (!$metabox_submitted) {
+                $saved_text = get_post_meta($post_id, 'cleverpush_text', true);
+                if (!empty($saved_text)) {
+                    $text = $saved_text;
+                }
             }
 
             if (empty($title)) {
@@ -1170,13 +1207,19 @@ if (! class_exists('CleverPush') ) :
             if (isset($_POST['cleverpush_use_tags']) && $_POST['cleverpush_use_tags'] == '1' && !empty($_POST['cleverpush_tags'])) {
                 $options['tags'] = array_map('sanitize_text_field', $_POST['cleverpush_tags']);
             }
-            $thumbnail_url = get_the_post_thumbnail_url();
+            $thumbnail_url = get_the_post_thumbnail_url($post_id);
             if (!empty($thumbnail_url)) {
                 $options['mediaUrl'] = $thumbnail_url;
             }
 
             if (!empty($_POST['cleverpush_scheduled_at'])) {
                 $options['scheduledAt'] = sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at']));
+            } else {
+                $saved_scheduled_at = get_post_meta($post_id, 'cleverpush_scheduled_at', true);
+                $saved_timestamp = !empty($saved_scheduled_at) ? strtotime($saved_scheduled_at) : false;
+                if ($saved_timestamp && $saved_timestamp > time()) {
+                    $options['scheduledAt'] = $saved_scheduled_at;
+                }
             }
 
             delete_post_meta($post_id, 'cleverpush_send_notification');
@@ -1187,6 +1230,7 @@ if (! class_exists('CleverPush') ) :
                 update_option('cleverpush_notification_error', null);
                 update_post_meta($post_id, 'cleverpush_notification_sent', true);
                 update_post_meta($post_id, 'cleverpush_notification_sent_at', time());
+                $this->delete_draft_notification($post_id);
 
             } catch (Exception $ex) {
                 update_option('cleverpush_notification_result', array('status' => 'error', 'message' => $ex->getMessage() ));
@@ -1215,9 +1259,11 @@ if (! class_exists('CleverPush') ) :
             if (isset($_POST['cleverpush_text'])) {
                 update_post_meta($post_id, 'cleverpush_text', sanitize_text_field($_POST['cleverpush_text']));
             }
-            if (isset($_POST['cleverpush_scheduled_at'])) {
-                update_post_meta($post_id, 'cleverpush_scheduled_at', sanitize_text_field($_POST['cleverpush_scheduled_at']));
+            if (isset($_POST['cleverpush_metabox_form_data_available']) && isset($_POST['cleverpush_scheduled_at'])) {
+                update_post_meta($post_id, 'cleverpush_scheduled_at', sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at'])));
             }
+
+            $this->sync_draft_notification($post_id);
 
             if (!empty($_POST['cleverpush_story_id'])) {
                 if (isset($_POST['clear_cache']) && !empty($_POST['cleverpush_story_id'])) {
@@ -1243,6 +1289,86 @@ if (! class_exists('CleverPush') ) :
                 }
                 remove_action('save_post', array( $this, 'save_post' ), 1);
             }
+        }
+
+        public function sync_draft_notification($post_id)
+        {
+            if ((defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) || wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
+                return;
+            }
+
+            if (!isset($_POST['cleverpush_metabox_form_data_available'])) {
+                return;
+            }
+
+            $status = get_post_status($post_id);
+            if (!in_array($status, array('draft', 'future', 'pending'), true)) {
+                return;
+            }
+
+            if (!isset($_POST['cleverpush_send_notification'])) {
+                $this->delete_draft_notification($post_id);
+                return;
+            }
+
+            $title = html_entity_decode(get_the_title($post_id));
+            if (!empty($_POST['cleverpush_title'])) {
+                $title = sanitize_text_field(wp_unslash($_POST['cleverpush_title']));
+            }
+            $text = '';
+            if (!empty($_POST['cleverpush_text'])) {
+                $text = sanitize_text_field(wp_unslash($_POST['cleverpush_text']));
+            }
+            if (empty($title)) {
+                return;
+            }
+
+            $scheduled_at = get_post_meta($post_id, 'cleverpush_scheduled_at', true);
+            $scheduled_timestamp = !empty($scheduled_at) ? strtotime($scheduled_at) : false;
+            if (!$scheduled_timestamp || $scheduled_timestamp <= time()) {
+                $scheduled_at = '';
+            }
+
+            $fingerprint = md5($title . '|' . $text . '|' . $scheduled_at);
+            $existing_id = get_post_meta($post_id, 'cleverpush_draft_notification_id', true);
+            $existing_fingerprint = get_post_meta($post_id, 'cleverpush_draft_notification_hash', true);
+            if (!empty($existing_id) && $existing_fingerprint === $fingerprint) {
+                return;
+            }
+
+            if (!empty($existing_id)) {
+                $this->delete_draft_notification($post_id);
+            }
+
+            $options = array('status' => 'draft');
+            if (!empty($scheduled_at)) {
+                $options['scheduledAt'] = $scheduled_at;
+            }
+
+            try {
+                $response = CleverPush_Api::send_notification($title, $text, get_permalink($post_id), $options);
+                if (empty($response) || is_wp_error($response)) {
+                    return;
+                }
+                $body = json_decode(wp_remote_retrieve_body($response));
+                if (empty($body->notificationId)) {
+                    return;
+                }
+                update_post_meta($post_id, 'cleverpush_draft_notification_id', sanitize_text_field($body->notificationId));
+                update_post_meta($post_id, 'cleverpush_draft_notification_hash', $fingerprint);
+            } catch (Exception $ex) {
+                update_option('cleverpush_notification_error', $ex->getMessage());
+            }
+        }
+
+        public function delete_draft_notification($post_id)
+        {
+            $notification_id = get_post_meta($post_id, 'cleverpush_draft_notification_id', true);
+            if (!empty($notification_id)) {
+                CleverPush_Api::delete_notification($notification_id);
+            }
+            delete_post_meta($post_id, 'cleverpush_draft_notification_id');
+            delete_post_meta($post_id, 'cleverpush_draft_notification_hash');
         }
 
         public function show_public_preview( $query )
