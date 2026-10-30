@@ -1264,7 +1264,7 @@ if (! class_exists('CleverPush') ) :
             if (isset($_POST['cleverpush_metabox_form_data_available']) && isset($_POST['cleverpush_scheduled_at'])) {
                 update_post_meta($post_id, 'cleverpush_scheduled_at', sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at'])));
             }
-            if (isset($_POST['cleverpush_metabox_form_data_available'])) {
+            if (isset($_POST['cleverpush_metabox_form_data_available']) && $this->notification_targeting_submitted()) {
                 update_post_meta($post_id, 'cleverpush_notification_targeting', $this->get_notification_targeting($post_id, true));
             }
 
@@ -1437,22 +1437,39 @@ if (! class_exists('CleverPush') ) :
             $this->delete_draft_notification($post->ID);
         }
 
+        public function notification_targeting_submitted()
+        {
+            return isset($_POST['cleverpush_use_topics'])
+                || isset($_POST['cleverpush_use_segments'])
+                || isset($_POST['cleverpush_use_tags']);
+        }
+
         public function get_notification_targeting($post_id, $from_request = false)
         {
+            $targeting = get_post_meta($post_id, 'cleverpush_notification_targeting', true);
+            if (!is_array($targeting)) {
+                $targeting = array();
+            }
             if (!$from_request) {
-                $targeting = get_post_meta($post_id, 'cleverpush_notification_targeting', true);
-                return is_array($targeting) ? $targeting : array();
+                return $targeting;
             }
 
-            $targeting = array();
-            if (isset($_POST['cleverpush_use_segments']) && $_POST['cleverpush_use_segments'] == '1' && !empty($_POST['cleverpush_segments'])) {
-                $targeting['segments'] = array_map('sanitize_text_field', wp_unslash($_POST['cleverpush_segments']));
+            $targeting = $this->replace_submitted_targeting($targeting, 'topics', 'cleverpush_use_topics', 'cleverpush_topics');
+            $targeting = $this->replace_submitted_targeting($targeting, 'segments', 'cleverpush_use_segments', 'cleverpush_segments');
+            $targeting = $this->replace_submitted_targeting($targeting, 'tags', 'cleverpush_use_tags', 'cleverpush_tags');
+
+            return $targeting;
+        }
+
+        public function replace_submitted_targeting($targeting, $key, $use_field, $value_field)
+        {
+            if (!isset($_POST[$use_field])) {
+                return $targeting;
             }
-            if (isset($_POST['cleverpush_use_topics']) && $_POST['cleverpush_use_topics'] == '1' && !empty($_POST['cleverpush_topics'])) {
-                $targeting['topics'] = array_map('sanitize_text_field', wp_unslash($_POST['cleverpush_topics']));
-            }
-            if (isset($_POST['cleverpush_use_tags']) && $_POST['cleverpush_use_tags'] == '1' && !empty($_POST['cleverpush_tags'])) {
-                $targeting['tags'] = array_map('sanitize_text_field', wp_unslash($_POST['cleverpush_tags']));
+
+            unset($targeting[$key]);
+            if ($_POST[$use_field] == '1' && !empty($_POST[$value_field]) && is_array($_POST[$value_field])) {
+                $targeting[$key] = array_map('sanitize_text_field', wp_unslash($_POST[$value_field]));
             }
 
             return $targeting;
