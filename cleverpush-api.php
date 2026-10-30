@@ -91,10 +91,10 @@ class CleverPush_Api
         $api_key_private = get_option('cleverpush_apikey_private');
 
         if (empty($channel_id) || empty($notification_id) || empty($api_key_private)) {
-            return null;
+            return false;
         }
 
-        return wp_remote_request(
+        $response = wp_remote_request(
             CLEVERPUSH_API_ENDPOINT . '/channel/' . rawurlencode($channel_id) . '/notification/' . rawurlencode($notification_id),
             array(
                 'method' => 'DELETE',
@@ -104,6 +104,12 @@ class CleverPush_Api
                 )
             )
         );
+
+        if (is_wp_error($response)) {
+            return false;
+        }
+
+        return wp_remote_retrieve_response_code($response) >= 200 && wp_remote_retrieve_response_code($response) < 300;
     }
 
     public static function update_channel($channel_id, $params = array())
