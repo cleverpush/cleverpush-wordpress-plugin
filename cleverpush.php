@@ -4,7 +4,7 @@ Plugin Name: CleverPush
 Plugin URI: https://cleverpush.com
 Description: Send push notifications to your users right through your website. Visit <a href="https://cleverpush.com">CleverPush</a> for more details.
 Author: CleverPush
-Version: 1.9.8
+Version: 1.9.9
 Author URI: https://cleverpush.com
 Text Domain: cleverpush
 Domain Path: /languages
@@ -43,6 +43,8 @@ if (! class_exists('CleverPush') ) :
             add_action('admin_notices', array($this, 'warn_nosettings'));
             add_action('add_meta_boxes', array($this, 'create_metabox'));
             add_action('save_post', array($this, 'save_post'), 10, 2);
+            add_action('transition_post_status', array($this, 'cleanup_draft_notification_for_status_change'), 10, 3);
+            add_action('before_delete_post', array($this, 'delete_draft_notification'));
             add_action('admin_notices', array($this, 'notices'));
 
             add_action('publish_post', array($this, 'publish_post'), 10, 1);
@@ -414,6 +416,17 @@ if (! class_exists('CleverPush') ) :
             $hidden_notification_settings = get_option('cleverpush_channel_hidden_notification_settings');
 
             if (!empty($api_key_private) && !empty($selected_channel_id)) {
+                $post_id = isset($_POST['post_id']) ? absint(wp_unslash($_POST['post_id'])) : 0;
+                $saved_targeting = array();
+                if ($post_id && current_user_can('edit_post', $post_id)) {
+                    $saved_targeting = get_post_meta($post_id, 'cleverpush_notification_targeting', true);
+                    if (!is_array($saved_targeting)) {
+                        $saved_targeting = array();
+                    }
+                }
+                $saved_topics = isset($saved_targeting['topics']) && is_array($saved_targeting['topics']) ? array_map('strval', $saved_targeting['topics']) : array();
+                $saved_tags = isset($saved_targeting['tags']) && is_array($saved_targeting['tags']) ? array_map('strval', $saved_targeting['tags']) : array();
+                $saved_segments = isset($saved_targeting['segments']) && is_array($saved_targeting['segments']) ? array_map('strval', $saved_targeting['segments']) : array();
                 $cleverpush_segments = array();
 
                 if (empty($hidden_notification_settings) || strpos($hidden_notification_settings, 'segments') === false) {
@@ -540,24 +553,23 @@ if (! class_exists('CleverPush') ) :
                         <label class="components-base-control__label"><?php _e('Topics', 'cleverpush'); ?>:</label>
                         <div>
                             <div>
-                                <label><input name="cleverpush_use_topics" type="radio" value="0"
-                                              checked> <?php _e('All subscriptions', 'cleverpush'); ?></label>
+                                <label><input name="cleverpush_use_topics" type="radio" value="0" <?php checked(empty($saved_topics)); ?>> <?php _e('All subscriptions', 'cleverpush'); ?></label>
                             </div>
                             <div>
                                 <label><input name="cleverpush_use_topics" type="radio"
-                                              value="1"> <?php _e('Select topics', 'cleverpush'); ?></label>
+                                              value="1" <?php checked(!empty($saved_topics)); ?>> <?php _e('Select topics', 'cleverpush'); ?></label>
                             </div>
                         </div>
                     </div>
                     <div class="components-base-control__field cleverpush-topics"
-                         style="display: none; margin-left: 30px;" data-required="<?php echo esc_attr($cleverpush_topics_required ? 'true' : 'false'); ?>">
+                         style="display: <?php echo empty($saved_topics) ? 'none' : 'block'; ?>; margin-left: 30px;" data-required="<?php echo esc_attr($cleverpush_topics_required ? 'true' : 'false'); ?>">
                     <?php
                     foreach ($cleverpush_topics as $topic) {
                         ?>
                             <div>
                                 <label>
                                     <input type="checkbox" name="cleverpush_topics[]"
-                                           value="<?php echo esc_attr($topic->_id); ?>"><?php echo esc_html($topic->name); ?></input>
+                                           value="<?php echo esc_attr($topic->_id); ?>" <?php checked(in_array((string) $topic->_id, $saved_topics, true)); ?>><?php echo esc_html($topic->name); ?></input>
                                 </label>
                             </div>
                         <?php
@@ -575,24 +587,23 @@ if (! class_exists('CleverPush') ) :
                         <label class="components-base-control__label"><?php _e('Tags', 'cleverpush'); ?>:</label>
                         <div>
                             <div>
-                                <label><input name="cleverpush_use_tags" type="radio" value="0"
-                                              checked> <?php _e('All subscriptions', 'cleverpush'); ?></label>
+                                <label><input name="cleverpush_use_tags" type="radio" value="0" <?php checked(empty($saved_tags)); ?>> <?php _e('All subscriptions', 'cleverpush'); ?></label>
                             </div>
                             <div>
                                 <label><input name="cleverpush_use_tags" type="radio"
-                                              value="1"> <?php _e('Select tags', 'cleverpush'); ?></label>
+                                              value="1" <?php checked(!empty($saved_tags)); ?>> <?php _e('Select tags', 'cleverpush'); ?></label>
                             </div>
                         </div>
                     </div>
                     <div class="components-base-control__field cleverpush-tags"
-                         style="display: none; margin-left: 30px;" data-required="<?php echo esc_attr($cleverpush_tags_required ? 'true' : 'false'); ?>">
+                         style="display: <?php echo empty($saved_tags) ? 'none' : 'block'; ?>; margin-left: 30px;" data-required="<?php echo esc_attr($cleverpush_tags_required ? 'true' : 'false'); ?>">
                     <?php
                     foreach ($cleverpush_tags as $tag) {
                         ?>
                             <div>
                                 <label>
                                     <input type="checkbox" name="cleverpush_tags[]"
-                                           value="<?php echo esc_attr($tag->_id); ?>"><?php echo esc_html($tag->name); ?></input>
+                                           value="<?php echo esc_attr($tag->_id); ?>" <?php checked(in_array((string) $tag->_id, $saved_tags, true)); ?>><?php echo esc_html($tag->name); ?></input>
                                 </label>
                             </div>
                         <?php
@@ -610,24 +621,23 @@ if (! class_exists('CleverPush') ) :
                         <label class="components-base-control__label"><?php _e('Segments', 'cleverpush'); ?>:</label>
                         <div>
                             <div>
-                                <label><input name="cleverpush_use_segments" type="radio" value="0"
-                                              checked> <?php _e('All subscriptions', 'cleverpush'); ?></label>
+                                <label><input name="cleverpush_use_segments" type="radio" value="0" <?php checked(empty($saved_segments)); ?>> <?php _e('All subscriptions', 'cleverpush'); ?></label>
                             </div>
                             <div>
                                 <label><input name="cleverpush_use_segments" type="radio"
-                                              value="1"> <?php _e('Select segments', 'cleverpush'); ?></label>
+                                              value="1" <?php checked(!empty($saved_segments)); ?>> <?php _e('Select segments', 'cleverpush'); ?></label>
                             </div>
                         </div>
                     </div>
                     <div class="components-base-control__field cleverpush-segments"
-                         style="display: none; margin-left: 30px;" data-required="<?php echo esc_attr($cleverpush_segments_required ? 'true' : 'false'); ?>">
+                         style="display: <?php echo empty($saved_segments) ? 'none' : 'block'; ?>; margin-left: 30px;" data-required="<?php echo esc_attr($cleverpush_segments_required ? 'true' : 'false'); ?>">
                     <?php
                     foreach ($cleverpush_segments as $segment) {
                         ?>
                             <div>
                                 <label>
                                     <input type="checkbox" name="cleverpush_segments[]"
-                                           value="<?php echo esc_attr($segment->_id); ?>"><?php echo esc_html($segment->name); ?></input>
+                                           value="<?php echo esc_attr($segment->_id); ?>" <?php checked(in_array((string) $segment->_id, $saved_segments, true)); ?>><?php echo esc_html($segment->name); ?></input>
                                 </label>
                             </div>
                         <?php
@@ -763,10 +773,45 @@ if (! class_exists('CleverPush') ) :
                             cpCheckbox.addEventListener('change', function (e) {
                                 cpContent.style.display = e.target.checked ? 'block' : 'none';
 
-                                if (!e.target.checked && cpScheduledAtPicker) {
-                                  cpScheduledAtPicker.value = '';
+                                if (!e.target.checked) {
+                                    if (cpScheduledAtPicker) {
+                                        cpScheduledAtPicker.value = '';
+                                    }
+                                    if (cpScheduledAtInput) {
+                                        cpScheduledAtInput.value = '';
+                                    }
                                 }
                             });
+
+                            var syncScheduledAt = function () {};
+                            if (cpScheduledAtInput && cpScheduledAtPicker) {
+                                var padDatePart = function (value) {
+                                    return (value < 10 ? '0' : '') + value;
+                                };
+                                var getLocalDateString = function (date) {
+                                    return date.getFullYear() + '-' + padDatePart(date.getMonth() + 1) + '-' + padDatePart(date.getDate()) + 'T' + padDatePart(date.getHours()) + ':' + padDatePart(date.getMinutes());
+                                };
+                                syncScheduledAt = function () {
+                                    if (!cpScheduledAtPicker.value) {
+                                        cpScheduledAtInput.value = '';
+                                        return;
+                                    }
+                                    var parsed = new Date(cpScheduledAtPicker.value);
+                                    if (!isNaN(parsed.getTime())) {
+                                        cpScheduledAtInput.value = parsed.toISOString();
+                                    }
+                                };
+                                cpScheduledAtPicker.min = getLocalDateString(new Date());
+                                if (cpScheduledAtInput.value && new Date(cpScheduledAtInput.value) > new Date()) {
+                                    cpScheduledAtPicker.value = getLocalDateString(new Date(cpScheduledAtInput.value));
+                                }
+                                cpScheduledAtPicker.addEventListener('input', syncScheduledAt);
+                                cpScheduledAtPicker.addEventListener('change', syncScheduledAt);
+                                var postForm = document.getElementById('post');
+                                if (postForm) {
+                                    postForm.addEventListener('submit', syncScheduledAt);
+                                }
+                            }
 
                             var initCleverPush = function () {
                                 if (typeof wp !== 'undefined' && wp.data && wp.data.subscribe && wp.data.select) {
@@ -789,6 +834,10 @@ if (! class_exists('CleverPush') ) :
                                                     var isAutosavingPost = coreEditor.isAutosavingPost();
                                                     var isPreviewingPost = coreEditor.isPreviewingPost();
                                                     var postStatus = coreEditor.getEditedPostAttribute('status');
+
+                                                    if (isSavingPost && !wasSavingPost) {
+                                                        syncScheduledAt();
+                                                    }
 
                                                     // Save metaboxes on save completion, except for autosaves that are not a post preview.
                                                     var shouldTriggerTemplateNotice = (
@@ -971,29 +1020,12 @@ if (! class_exists('CleverPush') ) :
                                                 }
                                             }
 
-                                            if (cpScheduledAtInput && cpScheduledAtPicker) {
-                                                var getLocalDateString = function(date) {
-                                                    return date.getFullYear() + '-' + ((date.getMonth() + 1) + '').padStart(2, '0') + '-' + (date.getDate() + '') + "T" + (date.getHours() + '').padStart(2, '0') + ":" + (date.getMinutes() + '').padStart(2, '0')
-                                                };
-                                                var date = new Date();
-                                                cpScheduledAtPicker.min = getLocalDateString(date);
-                                                if (cpScheduledAtInput.value && new Date(cpScheduledAtInput.value) > new Date()) {
-                                                    cpScheduledAtPicker.value = getLocalDateString(new Date(cpScheduledAtInput.value));
-                                                }
-                                                cpScheduledAtPicker.addEventListener('change', function() {
-                                                    if (!cpScheduledAtPicker.value) {
-                                                        cpScheduledAtInput.value = '';
-                                                        return;
-                                                    }
-                                                    cpScheduledAtInput.value = new Date(cpScheduledAtPicker.value).toISOString();
-                                                });
-                                            }
                                         }
                                     }
                                 };
                                 request.open('POST', ajaxurl, true);
                                 request.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
-                                request.send('action=cleverpush_send_options');
+                                request.send('action=cleverpush_send_options&post_id=<?php echo (int) $post->ID; ?>');
                             };
 
                             if (document.readyState === 'complete') {
@@ -1126,16 +1158,18 @@ if (! class_exists('CleverPush') ) :
                 return;
             }
 
-            if (!current_user_can('cleverpush_send')) {
+            $saved_send = get_post_meta($post_id, 'cleverpush_send_notification', true);
+            $publishing_via_cron = (function_exists('wp_doing_cron') && wp_doing_cron()) || (defined('DOING_CRON') && DOING_CRON);
+            if (!current_user_can('cleverpush_send') && !($publishing_via_cron && $saved_send)) {
                 return;
             }
 
-            if (isset($_POST['cleverpush_metabox_form_data_available']) ? !isset($_POST['cleverpush_send_notification']) : !get_post_meta($post_id, 'cleverpush_send_notification', true)) {
+            if (isset($_POST['cleverpush_metabox_form_data_available']) ? !isset($_POST['cleverpush_send_notification']) : !$saved_send) {
                 return;
             }
 
             if (get_post_meta($post_id, 'cleverpush_notification_sent', true)) {
-                $notification_sent_at = get_post_meta(get_the_ID(), 'cleverpush_notification_sent_at', true);
+                $notification_sent_at = get_post_meta($post_id, 'cleverpush_notification_sent_at', true);
                 if (!empty($notification_sent_at) && (time() - $notification_sent_at) < 60) {
                     return;
                 }
@@ -1145,15 +1179,28 @@ if (! class_exists('CleverPush') ) :
             if (get_option('cleverpush_notification_title_required') == 'on') {
                 $title = null;
             }
-            $text = !empty(get_the_excerpt()) ? html_entity_decode(get_the_excerpt()) : '';
+            $text = get_the_excerpt($post_id);
+            $text = !empty($text) ? html_entity_decode($text) : '';
             $url = get_permalink($post_id);
+            $metabox_submitted = isset($_POST['cleverpush_metabox_form_data_available']);
 
             if (!empty($_POST['cleverpush_title'])) {
                 $title = sanitize_text_field(wp_unslash($_POST['cleverpush_title']));
                 $text = '';
+            } elseif (!$metabox_submitted) {
+                $saved_title = get_post_meta($post_id, 'cleverpush_title', true);
+                if (!empty($saved_title)) {
+                    $title = $saved_title;
+                    $text = '';
+                }
             }
             if (!empty($_POST['cleverpush_text'])) {
                 $text = sanitize_text_field(wp_unslash($_POST['cleverpush_text']));
+            } elseif (!$metabox_submitted) {
+                $saved_text = get_post_meta($post_id, 'cleverpush_text', true);
+                if (!empty($saved_text)) {
+                    $text = $saved_text;
+                }
             }
 
             if (empty($title)) {
@@ -1161,22 +1208,20 @@ if (! class_exists('CleverPush') ) :
             }
 
             $options = array();
-            if (isset($_POST['cleverpush_use_segments']) && $_POST['cleverpush_use_segments'] == '1' && !empty($_POST['cleverpush_segments'])) {
-                $options['segments'] = array_map('sanitize_text_field', $_POST['cleverpush_segments']);
-            }
-            if (isset($_POST['cleverpush_use_topics']) && $_POST['cleverpush_use_topics'] == '1' && !empty($_POST['cleverpush_topics'])) {
-                $options['topics'] = array_map('sanitize_text_field', $_POST['cleverpush_topics']);
-            }
-            if (isset($_POST['cleverpush_use_tags']) && $_POST['cleverpush_use_tags'] == '1' && !empty($_POST['cleverpush_tags'])) {
-                $options['tags'] = array_map('sanitize_text_field', $_POST['cleverpush_tags']);
-            }
-            $thumbnail_url = get_the_post_thumbnail_url();
+            $options = array_merge($options, $this->get_notification_targeting($post_id, $metabox_submitted));
+            $thumbnail_url = get_the_post_thumbnail_url($post_id);
             if (!empty($thumbnail_url)) {
                 $options['mediaUrl'] = $thumbnail_url;
             }
 
             if (!empty($_POST['cleverpush_scheduled_at'])) {
                 $options['scheduledAt'] = sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at']));
+            } elseif (!$metabox_submitted) {
+                $saved_scheduled_at = get_post_meta($post_id, 'cleverpush_scheduled_at', true);
+                $saved_timestamp = !empty($saved_scheduled_at) ? strtotime($saved_scheduled_at) : false;
+                if ($saved_timestamp && $saved_timestamp > time()) {
+                    $options['scheduledAt'] = $saved_scheduled_at;
+                }
             }
 
             delete_post_meta($post_id, 'cleverpush_send_notification');
@@ -1187,6 +1232,7 @@ if (! class_exists('CleverPush') ) :
                 update_option('cleverpush_notification_error', null);
                 update_post_meta($post_id, 'cleverpush_notification_sent', true);
                 update_post_meta($post_id, 'cleverpush_notification_sent_at', time());
+                $this->delete_draft_notification($post_id);
 
             } catch (Exception $ex) {
                 update_option('cleverpush_notification_result', array('status' => 'error', 'message' => $ex->getMessage() ));
@@ -1215,9 +1261,14 @@ if (! class_exists('CleverPush') ) :
             if (isset($_POST['cleverpush_text'])) {
                 update_post_meta($post_id, 'cleverpush_text', sanitize_text_field($_POST['cleverpush_text']));
             }
-            if (isset($_POST['cleverpush_scheduled_at'])) {
-                update_post_meta($post_id, 'cleverpush_scheduled_at', sanitize_text_field($_POST['cleverpush_scheduled_at']));
+            if (isset($_POST['cleverpush_metabox_form_data_available']) && isset($_POST['cleverpush_scheduled_at'])) {
+                update_post_meta($post_id, 'cleverpush_scheduled_at', sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at'])));
             }
+            if (isset($_POST['cleverpush_metabox_form_data_available']) && $this->notification_targeting_submitted()) {
+                update_post_meta($post_id, 'cleverpush_notification_targeting', $this->get_notification_targeting($post_id, true));
+            }
+
+            $this->sync_draft_notification($post_id);
 
             if (!empty($_POST['cleverpush_story_id'])) {
                 if (isset($_POST['clear_cache']) && !empty($_POST['cleverpush_story_id'])) {
@@ -1243,6 +1294,185 @@ if (! class_exists('CleverPush') ) :
                 }
                 remove_action('save_post', array( $this, 'save_post' ), 1);
             }
+        }
+
+        public function sync_draft_notification($post_id)
+        {
+            if ((defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) || wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
+                return;
+            }
+
+            $status = get_post_status($post_id);
+            if (!in_array($status, array('draft', 'future', 'pending'), true)) {
+                $this->delete_draft_notification($post_id);
+                return;
+            }
+
+            if (!isset($_POST['cleverpush_metabox_form_data_available'])) {
+                return;
+            }
+
+            if (!isset($_POST['cleverpush_send_notification'])) {
+                $this->delete_draft_notification($post_id);
+                return;
+            }
+
+            $title = html_entity_decode(get_the_title($post_id));
+            if (get_option('cleverpush_notification_title_required') == 'on') {
+                $title = null;
+            }
+            if (!empty($_POST['cleverpush_title'])) {
+                $title = sanitize_text_field(wp_unslash($_POST['cleverpush_title']));
+            }
+            $text = '';
+            if (!empty($_POST['cleverpush_text'])) {
+                $text = sanitize_text_field(wp_unslash($_POST['cleverpush_text']));
+            }
+            if (empty($title)) {
+                $this->delete_draft_notification($post_id);
+                return;
+            }
+
+            $scheduled_at = get_post_meta($post_id, 'cleverpush_scheduled_at', true);
+            $scheduled_timestamp = !empty($scheduled_at) ? strtotime($scheduled_at) : false;
+            if (!$scheduled_timestamp || $scheduled_timestamp <= time()) {
+                $scheduled_at = '';
+            }
+
+            $url = get_permalink($post_id);
+            $targeting = $this->get_notification_targeting($post_id, true);
+            $fingerprint = md5($title . '|' . $text . '|' . $url . '|' . $scheduled_at . '|' . wp_json_encode($targeting));
+            $existing_id = get_post_meta($post_id, 'cleverpush_draft_notification_id', true);
+            $existing_fingerprint = get_post_meta($post_id, 'cleverpush_draft_notification_hash', true);
+            if (!empty($existing_id) && $existing_fingerprint === $fingerprint) {
+                $this->retry_pending_draft_deletions($post_id);
+                return;
+            }
+
+            $options = array_merge(array('status' => 'draft'), $targeting);
+            if (!empty($scheduled_at)) {
+                $options['scheduledAt'] = $scheduled_at;
+            }
+
+            try {
+                $response = CleverPush_Api::send_notification($title, $text, $url, $options);
+                if (empty($response) || is_wp_error($response)) {
+                    return;
+                }
+                $body = json_decode(wp_remote_retrieve_body($response));
+                if (empty($body->notificationId)) {
+                    return;
+                }
+                $new_notification_id = sanitize_text_field($body->notificationId);
+                update_post_meta($post_id, 'cleverpush_draft_notification_id', $new_notification_id);
+                update_post_meta($post_id, 'cleverpush_draft_notification_hash', $fingerprint);
+                if (!empty($existing_id) && $existing_id !== $new_notification_id) {
+                    $this->delete_draft_notification_by_id($post_id, $existing_id);
+                }
+                $this->retry_pending_draft_deletions($post_id);
+            } catch (Exception $ex) {
+                update_option('cleverpush_notification_error', $ex->getMessage());
+            }
+        }
+
+        public function delete_draft_notification($post_id)
+        {
+            $notification_id = get_post_meta($post_id, 'cleverpush_draft_notification_id', true);
+            if (!empty($notification_id)) {
+                if (!CleverPush_Api::delete_notification($notification_id)) {
+                    $this->queue_draft_notification_deletion($post_id, $notification_id);
+                    return false;
+                }
+            }
+            delete_post_meta($post_id, 'cleverpush_draft_notification_id');
+            delete_post_meta($post_id, 'cleverpush_draft_notification_hash');
+            $this->retry_pending_draft_deletions($post_id);
+            return true;
+        }
+
+        public function delete_draft_notification_by_id($post_id, $notification_id)
+        {
+            if (!CleverPush_Api::delete_notification($notification_id)) {
+                $this->queue_draft_notification_deletion($post_id, $notification_id);
+                return false;
+            }
+            return true;
+        }
+
+        public function queue_draft_notification_deletion($post_id, $notification_id)
+        {
+            $pending_ids = get_post_meta($post_id, 'cleverpush_draft_notification_ids_to_delete', true);
+            $pending_ids = is_array($pending_ids) ? $pending_ids : array();
+            if (!in_array($notification_id, $pending_ids, true)) {
+                $pending_ids[] = $notification_id;
+                update_post_meta($post_id, 'cleverpush_draft_notification_ids_to_delete', $pending_ids);
+            }
+        }
+
+        public function retry_pending_draft_deletions($post_id)
+        {
+            $pending_ids = get_post_meta($post_id, 'cleverpush_draft_notification_ids_to_delete', true);
+            if (!is_array($pending_ids) || empty($pending_ids)) {
+                return;
+            }
+
+            $remaining_ids = array();
+            foreach ($pending_ids as $notification_id) {
+                if (!CleverPush_Api::delete_notification($notification_id)) {
+                    $remaining_ids[] = $notification_id;
+                }
+            }
+            if (empty($remaining_ids)) {
+                delete_post_meta($post_id, 'cleverpush_draft_notification_ids_to_delete');
+            } else {
+                update_post_meta($post_id, 'cleverpush_draft_notification_ids_to_delete', $remaining_ids);
+            }
+        }
+
+        public function cleanup_draft_notification_for_status_change($new_status, $old_status, $post)
+        {
+            if (in_array($new_status, array('draft', 'future', 'pending'), true)) {
+                return;
+            }
+            $this->delete_draft_notification($post->ID);
+        }
+
+        public function notification_targeting_submitted()
+        {
+            return isset($_POST['cleverpush_use_topics'])
+                || isset($_POST['cleverpush_use_segments'])
+                || isset($_POST['cleverpush_use_tags']);
+        }
+
+        public function get_notification_targeting($post_id, $from_request = false)
+        {
+            $targeting = get_post_meta($post_id, 'cleverpush_notification_targeting', true);
+            if (!is_array($targeting)) {
+                $targeting = array();
+            }
+            if (!$from_request) {
+                return $targeting;
+            }
+
+            $targeting = $this->replace_submitted_targeting($targeting, 'topics', 'cleverpush_use_topics', 'cleverpush_topics');
+            $targeting = $this->replace_submitted_targeting($targeting, 'segments', 'cleverpush_use_segments', 'cleverpush_segments');
+            $targeting = $this->replace_submitted_targeting($targeting, 'tags', 'cleverpush_use_tags', 'cleverpush_tags');
+
+            return $targeting;
+        }
+
+        public function replace_submitted_targeting($targeting, $key, $use_field, $value_field)
+        {
+            if (!isset($_POST[$use_field])) {
+                return $targeting;
+            }
+
+            unset($targeting[$key]);
+            if ($_POST[$use_field] == '1' && !empty($_POST[$value_field]) && is_array($_POST[$value_field])) {
+                $targeting[$key] = array_map('sanitize_text_field', wp_unslash($_POST[$value_field]));
+            }
+
+            return $targeting;
         }
 
         public function show_public_preview( $query )
