@@ -34,6 +34,14 @@ if (! class_exists('CleverPush') ) :
         private $notification_result_max_age = 120;
 
         /**
+         * Post IDs already handled by publish_post in this request.
+         * publish_post can be registered twice for the same type.
+         *
+         * @var array<int, bool>
+         */
+        private $handled_publish = array();
+
+        /**
          * Construct the plugin.
          */
         public function __construct()
@@ -1200,6 +1208,11 @@ if (! class_exists('CleverPush') ) :
                 return;
             }
 
+            if (isset($this->handled_publish[$post_id])) {
+                return;
+            }
+            $this->handled_publish[$post_id] = true;
+
             if (!current_user_can('cleverpush_send')) {
                 return;
             }
@@ -1406,19 +1419,6 @@ if (! class_exists('CleverPush') ) :
 
         private function store_notification_result($post_id, $status, $message)
         {
-            if ($status !== 'success') {
-                $existing = get_post_meta($post_id, 'cleverpush_notification_result', true);
-                if (
-                    is_array($existing)
-                    && isset($existing['status'])
-                    && $existing['status'] === 'success'
-                    && !empty($existing['time'])
-                    && (int) $existing['time'] === time()
-                ) {
-                    return;
-                }
-            }
-
             update_post_meta($post_id, 'cleverpush_notification_result', array(
                 'status' => $status,
                 'message' => $message,
@@ -1459,7 +1459,7 @@ if (! class_exists('CleverPush') ) :
                 wp_send_json_error(array('message' => 'Not allowed'), 403);
             }
 
-            $result = $this->read_notification_result($post_id);
+            $result = $this->consume_notification_result($post_id);
             if (!$result) {
                 wp_send_json_success(array('status' => 'missing'));
             }
