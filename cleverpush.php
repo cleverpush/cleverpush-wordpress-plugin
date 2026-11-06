@@ -4,7 +4,7 @@ Plugin Name: CleverPush
 Plugin URI: https://cleverpush.com
 Description: Send push notifications to your users right through your website. Visit <a href="https://cleverpush.com">CleverPush</a> for more details.
 Author: CleverPush
-Version: 1.9.8
+Version: 1.9.10
 Author URI: https://cleverpush.com
 Text Domain: cleverpush
 Domain Path: /languages
@@ -25,6 +25,21 @@ if (! class_exists('CleverPush') ) :
          * @var string
          */
         private $capabilities_version;
+
+        /**
+         * How long a stored send result can be shown, in seconds.
+         *
+         * @var int
+         */
+        private $notification_result_max_age = 120;
+
+        /**
+         * Post IDs already handled by publish_post in this request.
+         * publish_post can be registered twice for the same type.
+         *
+         * @var array<int, bool>
+         */
+        private $handled_publish = array();
 
         /**
          * Construct the plugin.
@@ -62,6 +77,7 @@ if (! class_exists('CleverPush') ) :
 
             add_action('wp_ajax_cleverpush_users_plan', array($this, 'get_users_plan'));
             add_action('wp_ajax_cleverpush_ai_generation', array($this, 'get_ai_generation'));
+            add_action('wp_ajax_cleverpush_notification_result', array($this, 'ajax_notification_result'));
 
             add_action('single_template', array($this, 'cleverpush_story_template' ), 20, 1);
             add_action('frontpage_template', array($this, 'cleverpush_story_template' ), 11);
@@ -775,7 +791,12 @@ if (! class_exists('CleverPush') ) :
                                     var coreEditor = wp.data.select('core/editor');
 
                                     if (coreEditor) {
-                                        var wasSavingPost = coreEditor.isSavingPost();
+                                        var isSavingMetaBoxes = function () {
+                                            var editPost = wp.data.select('core/edit-post');
+                                            return !!(editPost && editPost.isSavingMetaBoxes && editPost.isSavingMetaBoxes());
+                                        };
+                                        var pollingResult = false;
+                                        var wasSavingPost = coreEditor.isSavingPost() || isSavingMetaBoxes();
                                         var wasAutosavingPost = coreEditor.isAutosavingPost();
                                         var wasPreviewingPost = coreEditor.isPreviewingPost();
                                         // determine whether to show notice
@@ -785,7 +806,7 @@ if (! class_exists('CleverPush') ) :
                                                     coreEditor = wp.data.select('core/editor');
                                                 }
                                                 if (coreEditor) {
-                                                    var isSavingPost = coreEditor.isSavingPost();
+                                                    var isSavingPost = coreEditor.isSavingPost() || isSavingMetaBoxes();
                                                     var isAutosavingPost = coreEditor.isAutosavingPost();
                                                     var isPreviewingPost = coreEditor.isPreviewingPost();
                                                     var postStatus = coreEditor.getEditedPostAttribute('status');
@@ -801,24 +822,85 @@ if (! class_exists('CleverPush') ) :
                                                     wasAutosavingPost = isAutosavingPost;
                                                     wasPreviewingPost = isPreviewingPost;
 
+                                                    if (isSavingPost) {
+                                                        pollingResult = false;
+                                                    }
+
                                                     if (shouldTriggerTemplateNotice && postStatus === 'publish') {
-                                                        if (cpCheckbox && cpCheckbox.checked) {
+                                                        if (cpCheckbox && cpCheckbox.checked && !pollingResult) {
+                                                            pollingResult = true;
                                                             setTimeout(function () {
                                                                 cpCheckbox.checked = false;
                                                             }, 30 * 1000);
 
                                                             hasNotice = true;
 
-                                                            wp.data.dispatch('core/notices').createNotice(
-                                                                'info', // Can be one of: success, info, warning, error.
-                                                                '<?php echo esc_html(__('The push notification for this post has been successfully sent.', 'cleverpush')); ?>', // Text string to display.
-                                                                {
-                                                                    id: 'cleverpush-notification-status', //assigning an ID prevents the notice from being added repeatedly
-                                                                    isDismissible: true, // Whether the user can dismiss the notice.
-                                                                    // Any actions the user can perform.
-                                                                    actions: []
-                                                                }
-                                                            );
+                                                            var unconfirmedMessage = '<?php echo esc_js(__('CleverPush could not confirm that this notification was sent.', 'cleverpush')); ?>';
+                                                            var postId = coreEditor.getCurrentPostId ? coreEditor.getCurrentPostId() : 0;
+                                                            if (!postId) {
+                                                                var postIdField = document.querySelector('#post_ID');
+                                                                postId = postIdField ? postIdField.value : 0;
+                                                            }
+
+                                                            var showCleverPushNotice = function (status, message) {
+                                                                var noticeStatus = (status === 'success' || status === 'warning' || status === 'error') ? status : 'warning';
+                                                                wp.data.dispatch('core/notices').createNotice(
+                                                                    noticeStatus,
+                                                                    message || unconfirmedMessage,
+                                                                    {
+                                                                        id: 'cleverpush-notification-status',
+                                                                        isDismissible: true,
+                                                                        actions: []
+                                                                    }
+                                                                );
+                                                            };
+
+                                                            if (!postId) {
+                                                                pollingResult = false;
+                                                                showCleverPushNotice('warning', unconfirmedMessage);
+                                                            } else {
+                                                                var attempts = 0;
+                                                                var sawResult = false;
+                                                                var loadNotificationResult = function () {
+                                                                    fetch(ajaxurl, {
+                                                                        method: 'POST',
+                                                                        headers: {
+                                                                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                                                                        },
+                                                                        body: 'action=cleverpush_notification_result&post_id=' + encodeURIComponent(postId)
+                                                                    }).then(function (response) {
+                                                                        return response.json();
+                                                                    }).then(function (payload) {
+                                                                        var data = payload && payload.success ? payload.data : null;
+                                                                        if (data && data.status && data.status !== 'missing') {
+                                                                            sawResult = true;
+                                                                            pollingResult = false;
+                                                                            showCleverPushNotice(data.status, data.message);
+                                                                            return;
+                                                                        }
+                                                                        attempts++;
+                                                                        if (attempts < 20) {
+                                                                            setTimeout(loadNotificationResult, 1000);
+                                                                            return;
+                                                                        }
+                                                                        pollingResult = false;
+                                                                        if (!sawResult) {
+                                                                            showCleverPushNotice('warning', unconfirmedMessage);
+                                                                        }
+                                                                    }).catch(function () {
+                                                                        attempts++;
+                                                                        if (attempts < 20) {
+                                                                            setTimeout(loadNotificationResult, 1000);
+                                                                            return;
+                                                                        }
+                                                                        pollingResult = false;
+                                                                        if (!sawResult) {
+                                                                            showCleverPushNotice('warning', unconfirmedMessage);
+                                                                        }
+                                                                    });
+                                                                };
+                                                                loadNotificationResult();
+                                                            }
                                                         } else if (hasNotice) {
                                                             var coreNotices = wp.data.dispatch('core/notices');
                                                             if (coreNotices) {
@@ -1126,6 +1208,11 @@ if (! class_exists('CleverPush') ) :
                 return;
             }
 
+            if (isset($this->handled_publish[$post_id])) {
+                return;
+            }
+            $this->handled_publish[$post_id] = true;
+
             if (!current_user_can('cleverpush_send')) {
                 return;
             }
@@ -1135,8 +1222,13 @@ if (! class_exists('CleverPush') ) :
             }
 
             if (get_post_meta($post_id, 'cleverpush_notification_sent', true)) {
-                $notification_sent_at = get_post_meta(get_the_ID(), 'cleverpush_notification_sent_at', true);
+                $notification_sent_at = get_post_meta($post_id, 'cleverpush_notification_sent_at', true);
                 if (!empty($notification_sent_at) && (time() - $notification_sent_at) < 60) {
+                    $this->store_notification_result(
+                        $post_id,
+                        'warning',
+                        __('A notification was already sent for this post less than a minute ago.', 'cleverpush')
+                    );
                     return;
                 }
             }
@@ -1157,6 +1249,11 @@ if (! class_exists('CleverPush') ) :
             }
 
             if (empty($title)) {
+                $this->store_notification_result(
+                    $post_id,
+                    'error',
+                    __('A push notification was not sent because the title is empty.', 'cleverpush')
+                );
                 return;
             }
 
@@ -1179,18 +1276,49 @@ if (! class_exists('CleverPush') ) :
                 $options['scheduledAt'] = sanitize_text_field(wp_unslash($_POST['cleverpush_scheduled_at']));
             }
 
+            // The post id is the article id. CleverPush otherwise guesses one from the URL, and query-string permalinks such as ?p=21 all collapse to the same id.
+            $options['externalId'] = (string) $post_id;
+
             delete_post_meta($post_id, 'cleverpush_send_notification');
 
             try {
-                CleverPush_Api::send_notification($title, $text, $url, $options);
-                update_option('cleverpush_notification_result', array('status' => 'success'));
-                update_option('cleverpush_notification_error', null);
-                update_post_meta($post_id, 'cleverpush_notification_sent', true);
-                update_post_meta($post_id, 'cleverpush_notification_sent_at', time());
-
+                $data = CleverPush_Api::send_notification($title, $text, $url, $options);
+                if ($data === null) {
+                    $this->store_notification_result(
+                        $post_id,
+                        'error',
+                        __('CleverPush is not configured.', 'cleverpush')
+                    );
+                } else {
+                    $classified = CleverPush_Api::classify_send_response($data);
+                    if ($classified['status'] === 'success') {
+                        $this->store_notification_result(
+                            $post_id,
+                            'success',
+                            __('The push notification for this post has been successfully sent.', 'cleverpush')
+                        );
+                        update_post_meta($post_id, 'cleverpush_notification_sent', true);
+                        update_post_meta($post_id, 'cleverpush_notification_sent_at', time());
+                    } else {
+                        $message = $classified['message'];
+                        if ($classified['status'] === 'error') {
+                            $message = 'CleverPush API Error: ' . $message;
+                        }
+                        $this->store_notification_result($post_id, $classified['status'], $message);
+                    }
+                }
             } catch (Exception $ex) {
-                update_option('cleverpush_notification_result', array('status' => 'error', 'message' => $ex->getMessage() ));
-                update_option('cleverpush_notification_error', $ex->getMessage());
+                $message = $ex->getMessage();
+                $status = 'error';
+                if (
+                    stripos($message, 'already existed') !== false
+                    || stripos($message, 'already trying to send') !== false
+                ) {
+                    $status = 'warning';
+                } else {
+                    $message = 'CleverPush API Error: ' . $message;
+                }
+                $this->store_notification_result($post_id, $status, $message);
             }
         }
 
@@ -1289,22 +1417,90 @@ if (! class_exists('CleverPush') ) :
             return $qv;
         }
 
+        private function store_notification_result($post_id, $status, $message)
+        {
+            update_post_meta($post_id, 'cleverpush_notification_result', array(
+                'status' => $status,
+                'message' => $message,
+                'time' => time(),
+            ));
+        }
+
+        private function read_notification_result($post_id)
+        {
+            $result = get_post_meta($post_id, 'cleverpush_notification_result', true);
+            if (!is_array($result) || empty($result['status']) || empty($result['time'])) {
+                return null;
+            }
+
+            if ((time() - (int) $result['time']) > $this->notification_result_max_age) {
+                delete_post_meta($post_id, 'cleverpush_notification_result');
+                return null;
+            }
+
+            return $result;
+        }
+
+        private function consume_notification_result($post_id)
+        {
+            $result = $this->read_notification_result($post_id);
+            if ($result) {
+                delete_post_meta($post_id, 'cleverpush_notification_result');
+            }
+
+            return $result;
+        }
+
+        public function ajax_notification_result()
+        {
+            $post_id = isset($_POST['post_id']) ? absint(wp_unslash($_POST['post_id'])) : 0;
+
+            if (!$post_id || !current_user_can('cleverpush_send') || !current_user_can('edit_post', $post_id)) {
+                wp_send_json_error(array('message' => 'Not allowed'), 403);
+            }
+
+            $result = $this->consume_notification_result($post_id);
+            if (!$result) {
+                wp_send_json_success(array('status' => 'missing'));
+            }
+
+            wp_send_json_success(array(
+                'status' => $result['status'],
+                'message' => isset($result['message']) ? $result['message'] : '',
+            ));
+        }
+
         public function notices()
         {
-            $result = get_option('cleverpush_notification_result', null);
-            if ($result) {
-                if ($result['status'] === 'success') {
-                    ?>
-                    <div class="notice notice-success is-dismissible"><p><?php echo esc_html(__('The push notification for this post has been successfully sent.', 'cleverpush')); ?></p></div>
-                    <?php
-                }
-                else if ($result['status'] === 'error') {
-                    ?>
-                    <div class="error is-dismissible"><p>CleverPush API Error:<br>' . <?php echo esc_html($result['message']); ?></p></div>
-                    <?php
-                }
+            if (!empty($_REQUEST['meta-box-loader'])) {
+                return;
             }
-            update_option('cleverpush_notification_result', null);
+
+            $fetch_dest = isset($_SERVER['HTTP_SEC_FETCH_DEST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_SEC_FETCH_DEST'])) : '';
+            if ($fetch_dest !== '' && $fetch_dest !== 'document') {
+                return;
+            }
+
+            $post_id = isset($_GET['post']) ? absint(wp_unslash($_GET['post'])) : 0;
+            if (!$post_id || !current_user_can('edit_post', $post_id)) {
+                return;
+            }
+
+            $result = $this->consume_notification_result($post_id);
+            if (!$result || empty($result['message'])) {
+                return;
+            }
+
+            $class = 'notice-success';
+            if ($result['status'] === 'warning') {
+                $class = 'notice-warning';
+            } else if ($result['status'] === 'error') {
+                $class = 'notice-error';
+            }
+
+            ?>
+            <div class="notice <?php echo esc_attr($class); ?> is-dismissible"><p><?php echo esc_html($result['message']); ?></p></div>
+            <?php
         }
 
         public function plugin_menu()
