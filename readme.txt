@@ -5,7 +5,7 @@ Plugin URI: https://cleverpush.com
 Tags: push notifications, web push, browser notifications, woocommerce
 Requires at least: 2.7
 Tested up to: 6.7.2
-Stable tag: 1.9.8
+Stable tag: 1.9.10
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -33,6 +33,11 @@ Please enter your API keys in the plugin's settings and select a channel. If no 
 If you are using any cache plugin, also be sure, to empty your cache.
 
 == ChangeLog ==
+
+= 1.9.10 =
+* Each post is sent to CleverPush with its post ID as the article ID, so different posts are no longer treated as duplicates when their URLs share a number
+* Notice after publishing now reports the real outcome: sent, blocked as a duplicate or recent send, or failed. Previously it showed success whenever the checkbox was checked
+* Duplicate and recent-send blocks show a warning instead of a success message
 
 = 1.9.8 =
 * Fixed issue with capabilities_version
